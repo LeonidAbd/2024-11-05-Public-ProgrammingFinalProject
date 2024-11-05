@@ -1,5 +1,5 @@
 # import tkinter  # some gui library
-from chessengine import *
+from chess_engine import *
 
 
 class Application:

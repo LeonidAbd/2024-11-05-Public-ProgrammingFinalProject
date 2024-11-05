@@ -48,8 +48,6 @@ class ChessEngine:
     def __init__(self):
         pass  # define all the masks
 
-    def get_moves(self):
-
     def get_pieces(self, piece_type):
         pass  # return the pieces by selecting the type, for example: "wK" - white knight
 
