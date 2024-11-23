@@ -16,13 +16,13 @@ class PieceType:
 
 def format_mask(mask: Mask) -> str:
     string_mask: str = bin(mask)[2:][::-1]
-    string_mask += "0" * (64 - len(string_mask))
+    string_mask = string_mask + "0" * (64 - len(string_mask))
     res: str = ""
     for i in range(8):
         res1 = ""
         for e in string_mask[i * 8:i * 8 + 8]:
             if e == "0":
-                res += ". "
+                res1 += ". "
             else:
                 res1 += e + " "
         res = res1 + "\n" + res
@@ -31,6 +31,7 @@ def format_mask(mask: Mask) -> str:
 
 def print_mask(mask: Mask) -> None:
     print(format_mask(mask))
+    print()
 
 
 class ChessEngine:
@@ -44,6 +45,7 @@ class ChessEngine:
     _mask_kings: Mask
     _mask_pieces_moved: Mask  # needed for castling
     _white_turn: bool
+    _pawns_en_passant: Mask  # needed for en passant
 
     def __init__(self):
         pass  # define all the masks
