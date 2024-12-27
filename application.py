@@ -7,7 +7,9 @@ import flet.canvas
 from typing import Callable
 import pynput
 
+import testfilechess
 from chess_engine import *
+from testfilechess import *
 
 
 class Application:
@@ -21,7 +23,9 @@ class Application:
 
     class Scene:
         class _Cell(flet.DragTarget):
-            i: int; j: int; active: bool; color_saved: str; content: flet.Container
+            i: int; j: int
+            active: bool
+            color_saved: str; content: flet.Container; id_accept: int
             _scene_self: Application.Scene | None = None
             
             @staticmethod
@@ -45,7 +49,9 @@ class Application:
                 return Application.Scene._Cell._scene_self.board_cells.controls[7 - i].controls[j]
 
         class _Piece(flet.Draggable):
-            content_feedback_saved: flet.Image; ij: tuple[int, int]; id: int; is_active: int
+            content_feedback_saved: flet.Image; ij: tuple[int, int]; id: int
+            active: int  # 0-inactive, 1-active, 2-active after dropping, 3-dropped, 4-dropped out of board & raise exception
+            board_piece: testfilechess.Chessman
 
         class _BoardStack(flet.Stack):
             _scene: Application.Scene | None
@@ -124,7 +130,7 @@ class Application:
         _application: Application
         _app_function: Callable[[flet.Page], None]
         _page: flet.Page
-        pieces_current: list[Application.Scene._Piece]
+        pieces: list[Application.Scene._Piece]
         cell_size: int
 
         def __init__(self, application: Application, size: tuple[int, int] = (800, 600)):
@@ -267,7 +273,9 @@ class Application:
                         if id not in ids and len(player_row.controls) >= 3:
                             player_row.controls.pop(2)
 
-                update_pc_difficulty = lambda: add_pc_difficulty(*[i for i in range(len(self._application._players)) if not self._application._players[i]])
+                update_pc_difficulty = lambda: add_pc_difficulty(*[i
+                                                                   for i in range(len(self._application._players))
+                                                                   if not self._application._players[i]])
                 update_pc_difficulty()
 
                 self._page.update()
@@ -513,96 +521,164 @@ class Application:
             BoardStack.set_scene_self(self)
 
             def get_active_piece() -> Piece:
-                for cell in self.pieces_current:
-                    if cell.active is 1:
-                        return cell
+                for piece in self.pieces:
+                    if piece.active in (1, 2):
+                        return piece
                 return None
 
             self.get_active_piece = get_active_piece
 
             def active_piece_set(event: flet.ControlEvent):
                 print(event.control.ij)
-                self.piece_current = event.control
-                is_active = self.piece_current.is_active
-                for piece in self.pieces_current:
+                piece_current: Piece = event.control
+                active = piece_current.active
+                for piece in self.pieces:
                     piece: Piece
-                    piece.is_active = 0
-                if is_active == 1:
-                    print("PIECECURRENT ERROR")
+                    piece.active = 0
+                if active == 1:
+                    piece_current.active = 4
+                    print("PIECECURRENT SET 4")
                 else:
-                    self.piece_current.is_active = 1
+                    piece_current.active = 1
+                    print(*[
+                        transform_from_engine(*t) for t in
+                        piece_current.board_piece.get_moves(
+                            self._application._chess_engine, *transform_to_engine(*piece_current.ij)
+                        )
+                    ], sep="\n  ")
+                    for xy in [
+                        transform_from_engine(*t) for t in
+                        piece_current.board_piece.get_moves(
+                            self._application._chess_engine, *transform_to_engine(*piece_current.ij)
+                        )
+                    ]:
+                        Cell.get_cell(*xy).active = True
+                    # print(*[self._application._chess_engine.get_chessman(*transform_to_engine(i, j))
+                    #         for i in range(8) for j in range(8)], sep="\n  ")
                     print("PIECECURRENT SET 1")
 
             def active_piece_drop(event: flet.ControlEvent):
                 piece_current = event.control
-                piece_current.is_active = 2
+                piece_current.active = 2
                 print("PIECECURRENT SET 2")
 
-            def piece_spawn():
-                image_src = "./resources/WhiteRook.png"
-                self.pieces_current = [Piece(
-                    group=None,
-                    content=flet.Image(src=image_src, width=cell_size - 2, height=cell_size - 2, opacity=1),
-                    content_when_dragging=flet.Image(src=image_src, width=cell_size - 2, height=cell_size - 2, opacity=0.5),
-                    content_feedback=flet.Image(src=image_src, width=cell_size - 2, height=cell_size - 2, opacity=1),
-                    on_drag_start=active_piece_set,
-                    on_drag_complete=active_piece_drop,
-                )]
-                for piece in self.pieces_current:
-                    piece.is_active = 0
-                self.pieces_current[0].content_feedback_saved = self.pieces_current[0].content_feedback
-                self.pieces_current[0].ij = [1, 2]
-                self.pieces_current[0].id = 1
-                piece_update()
+            def transform_to_engine(x, y):
+                return (y, 7 - x)
 
-            def piece_update():
-                Cell.get_cell(*self.pieces_current[0].ij).content.content = self.pieces_current[0]
-                Cell.get_cell(1, 2).id_accept = 1
-                Cell.get_cell(2, 2).id_accept = 1
-                Cell.get_cell(3, 2).id_accept = 1
+            def transform_from_engine(x, y):
+                return (7-y, x)
 
+            def pieces_spawn():
+                self.pieces = list()
+                for x in range(8):
+                    for y in range(8):
+                        board_piece = self._application._chess_engine.get_chessman(*transform_to_engine(x, y))
+                        if board_piece.CODE != testfilechess.EmptyCell.CODE:
+                            image_src = (
+                                "./resources/" +
+                                ("White" if board_piece.color == testfilechess.Color.WHITE else "Black") +
+                                ("Pawn"   if board_piece.CODE == testfilechess.ChessmanPawn.CODE else
+                                 "Knight" if board_piece.CODE == testfilechess.ChessmanKnight.CODE else
+                                 "Bishop" if board_piece.CODE == testfilechess.ChessmanBishop.CODE else
+                                 "Rook"   if board_piece.CODE == testfilechess.ChessmanRook.CODE else
+                                 "Queen"  if board_piece.CODE == testfilechess.ChessmanQueen.CODE else
+                                 "King"   if board_piece.CODE == testfilechess.ChessmanKing.CODE else "") +
+                                 ".png"
+                            )
+                            self.pieces.append(Piece(
+                                content=flet.Image(src=image_src, width=cell_size - 2, height=cell_size - 2, opacity=1),
+                                content_when_dragging=flet.Image(src=image_src, width=cell_size - 2, height=cell_size - 2, opacity=0.5),
+                                content_feedback=flet.Image(src=image_src, width=cell_size - 2, height=cell_size - 2, opacity=1),
+                                on_drag_start=active_piece_set,
+                                on_drag_complete=active_piece_drop,
+                                max_simultaneous_drags=2,
+                            ))
+                            self.pieces[-1].content_feedback_saved = self.pieces[-1].content_feedback
+                            self.pieces[-1].group = None
+                            self.pieces[-1].active = 0
+                            self.pieces[-1].ij = (x, y)
+                            self.pieces[-1].id = self.pieces[-2].id + 1 if len(self.pieces) > 1 else 0
+                            self.pieces[-1].board_piece = board_piece
+                            piece_update(x, y, self.pieces[-1])
+                # image_src = "./resources/WhiteRook.png"
+                # self.pieces = [Piece(
+                #     group=None,
+                #     content=flet.Image(src=image_src, width=cell_size - 2, height=cell_size - 2, opacity=1),
+                #     content_when_dragging=flet.Image(src=image_src, width=cell_size - 2, height=cell_size - 2, opacity=0.5),
+                #     content_feedback=flet.Image(src=image_src, width=cell_size - 2, height=cell_size - 2, opacity=1),
+                #     on_drag_start=active_piece_set,
+                #     on_drag_complete=active_piece_drop,
+                # )]
+                # for piece in self.pieces:
+                #     piece.active = 0
+                # self.pieces[0].content_feedback_saved = self.pieces[0].content_feedback
+                # self.pieces[0].ij = [1, 2]
+                # self.pieces[0].id = 1
+                # piece_update()
+
+            def piece_update(x, y, piece=None):
+                if piece is not None:
+                    Cell.get_cell(x, y).content.content = piece
                 self._page.update()
 
-            # self._add_menu_bar()
+            # setting the labels for letters and numbers
+            if True:
+                # self._add_menu_bar()
 
-            board_border_width = 4
-            cell_size = 46
-            board_numbering_size = [30, 30]
-            letters = "ABCDEFGH"
+                board_border_width = 4
+                cell_size = 46
+                board_numbering_size = [30, 30]
+                letters = "ABCDEFGH"
 
-            board_letter_labels = flet.Row([flet.Container(width=board_numbering_size[0] + board_border_width)] + [
-                flet.Container(flet.Text(f"{letters[i]}",
-                                         style=flet.TextStyle(weight=flet.FontWeight.W_700),
-                                         text_align=flet.TextAlign.CENTER), width=cell_size)
-                for i in range(8)], height=board_numbering_size[1], spacing=0)
-            board_letter_labels_empty = copy.copy(board_letter_labels)
-            board_letter_labels_empty.controls = None
+                board_letter_labels = flet.Row([flet.Container(width=board_numbering_size[0] + board_border_width)] + [
+                    flet.Container(flet.Text(f"{letters[i]}",
+                                             style=flet.TextStyle(weight=flet.FontWeight.W_700),
+                                             text_align=flet.TextAlign.CENTER), width=cell_size)
+                    for i in range(8)], height=board_numbering_size[1], spacing=0)
+                board_letter_labels_empty = copy.copy(board_letter_labels)
+                board_letter_labels_empty.controls = None
 
-            board_number_labels = flet.Column([
-                flet.Container(flet.Text(f"{i+1}",
-                                         style=flet.TextStyle(weight=flet.FontWeight.W_700),
-                                         text_align=flet.TextAlign.CENTER),
-                               alignment=flet.Alignment(y=flet.MainAxisAlignment.CENTER, x=flet.MainAxisAlignment.CENTER), height=cell_size)
-                for i in range(8)[::-1]], width=board_numbering_size[0], spacing=0)
-            board_number_labels_empty = copy.copy(board_number_labels)
-            board_number_labels_empty.controls = None
+                board_number_labels = flet.Column([
+                    flet.Container(flet.Text(f"{i+1}",
+                                             style=flet.TextStyle(weight=flet.FontWeight.W_700),
+                                             text_align=flet.TextAlign.CENTER),
+                                   alignment=flet.Alignment(y=flet.MainAxisAlignment.CENTER, x=flet.MainAxisAlignment.CENTER), height=cell_size)
+                    for i in range(8)[::-1]], width=board_numbering_size[0], spacing=0)
+                board_number_labels_empty = copy.copy(board_number_labels)
+                board_number_labels_empty.controls = None
 
             def piece_accept(event: flet.DragTargetAcceptEvent):
-                event.control.content.bgcolor = event.control.get_color()
-                event.control.content.border = flet.border.all(0, event.control.get_color())
-                event.control.update()
-                Cell.get_cell(*self.pieces_current[0].ij).content.content = None
-                self.pieces_current[0].ij = [event.control.i, event.control.j]
-                piece_update()
+                cell: Cell = event.control
+                if get_active_piece().active not in (1, 2) or not cell.active:
+                    return
+                self._application._chess_engine.move_chessman(
+                    transform_to_engine(*get_active_piece().ij),
+                    transform_to_engine(cell.i, cell.j)
+                )
+                cell.content.bgcolor = event.control.get_color()
+                cell.content.border = flet.border.all(0, event.control.get_color())
+                cell.update()
+                Cell.get_cell(*self.get_active_piece().ij).content.content = None
+                self.get_active_piece().ij = [event.control.i, event.control.j]
+                # if cell.id_accept == get_active_piece().id:
+                piece_update(*self.get_active_piece().ij, self.get_active_piece())
+                self.get_active_piece().active = 3
+                print("PIECECURRENT SET 3")
+                for i in range(8):
+                    for j in range(8):
+                        Cell.get_cell(i, j).active = False
 
             def piece_will_accept(event):
                 cell: Cell = event.control
                 self.cell_mouse_over = cell
+                print(f"{cell.active}")
+                if get_active_piece() is None:
+                    return
                 if self._application._input_listener.shift_pressed:
                     print("SHIFT!")
-                    self.board_stack.new_free_layer(self.pieces_current[0])
+                    self.board_stack.new_free_layer(self.get_active_piece())
                     self._page.update()
-                elif cell.id_accept == self.get_active_piece():
+                elif cell.active and get_active_piece().active in (1, 2):
                     cell.save_color()
                     cell.content.bgcolor = cell.get_color_active()
                     cell.content.border = flet.border.all(0, cell.get_color_active())
@@ -631,45 +707,49 @@ class Application:
                 cell.j = j
                 cell.active = False
                 cell.content.id = i * 8 + j
+                cell.id_accept = None
                 cell.content.bgcolor = cell.get_color()
                 cell.content.border = flet.border.all(0, cell.get_color())
                 cell.save_color()
                 return cell
 
-            self.board_cells = flet.Column([
-                flet.Row([
-                    create_cell(i, j)
-                    for j in range(8)], spacing=0)
-                for i in range(8)[::-1]], spacing=0)
+            # adding layout elements to the page
+            if True:
+                self.board_cells = flet.Column([
+                    flet.Row([
+                        create_cell(i, j)
+                        for j in range(8)], spacing=0)
+                    for i in range(8)[::-1]], spacing=0)
 
-            self.board_stack = Application.Scene._BoardStack([self.board_cells])
+                self.board_stack = Application.Scene._BoardStack([self.board_cells])
 
-            self._page.controls.append(flet.Text("Black"))
-            self._page.controls.append(
-                flet.Row([
-                    flet.Container(width=30),
-                    flet.Column([board_letter_labels
+                self._page.controls.append(flet.Text("Black"))
+                self._page.controls.append(
+                    flet.Row([
+                        flet.Container(width=30),
+                        flet.Column([board_letter_labels
+                                     if self._application._settings.board_two_sided_indexing else
+                                     board_letter_labels_empty] + [
+                            flet.Row([board_number_labels] + [
+                                flet.Container(
+                                    self.board_stack,
+                                    border=flet.border.all(board_border_width, "#36618E"),
+                                ),
+                            ] + [board_number_labels
                                  if self._application._settings.board_two_sided_indexing else
-                                 board_letter_labels_empty] + [
-                        flet.Row([board_number_labels] + [
-                            flet.Container(
-                                self.board_stack,
-                                border=flet.border.all(board_border_width, "#36618E"),
-                            ),
-                        ] + [board_number_labels
-                             if self._application._settings.board_two_sided_indexing else
-                             board_number_labels_empty], spacing=0),
-                    ] + [board_letter_labels],
-                                spacing=0),
-                ]),
-            )
+                                 board_number_labels_empty], spacing=0),
+                        ] + [board_letter_labels],
+                                    spacing=0),
+                    ])
+                )
 
             def piece_cell_fill_active(_):
-                cell_og = Cell.get_cell(*self.pieces_current[0].ij)
+                cell_og = Cell.get_cell(*self.get_active_piece().ij)
                 cell_og.content.bgcolor = cell_og.get_color_active()
                 cell_og.content.border = flet.border.all(0, cell_og.get_color_active())
+                cell_og.save_color()
 
-            piece_spawn()
+            pieces_spawn()
 
         def _show_scene_chess(self):
             self._page.clean()
@@ -679,6 +759,7 @@ class Application:
     class KeyboardListener:
         _application: Application
         shift_pressed: bool
+        shift_counts: bool
         _listener: pynput.keyboard.Listener
 
         def __init__(self, application: Application):
@@ -704,18 +785,26 @@ class Application:
 
         def _register_press(self, key: pynput.keyboard.Key):
             if key is pynput.keyboard.Key.shift:
-                self._application._scene.pieces_current[0].content_feedback_saved.opacity = 0
+                if self._application._scene.get_active_piece() is not None: return
+                print("REGISTER PRESS")
+                self.shift_counts = True
+                for piece in self._application._scene.pieces:
+                    piece.content_feedback_saved_opacity = 0
                 self._application._scene.board_stack.free_layer_show()
 
         def _register_release(self, key: pynput.keyboard.Key):
             if key is pynput.keyboard.Key.shift:
-                self._application._scene.pieces_current[0].content_feedback_saved.opacity = 1
+                if self._application._scene.get_active_piece() is not None: return
+                self.shift_counts = False
+                print("REGISTER RELEASE")
+                for piece in self._application._scene.pieces:
+                    piece.content_feedback_saved_opacity = 1
                 self._application._scene.board_stack.free_layer_hide()
 
         def __del__(self):
             self._listener.stop()
 
-    _chess_engine: ChessEngine
+    _chess_engine: testfilechess.Chessboard
     _players: list[bool, bool]
     _pc_difficulty: int
     _pc_difficulty_max: int = 3
@@ -724,7 +813,8 @@ class Application:
     _scene: Application.Scene
 
     def __init__(self):
-        self._chess_engine = ChessEngine()
+        self._chess_engine = testfilechess.Chessboard()
+        self._chess_engine.fill()
         self._players = [True, True]
         self._pc_difficulty = 1
         self._settings = Application.Settings("settings.json")
@@ -753,6 +843,3 @@ class Application:
             self._players[1 - player_id] = True
             return True  # this means we change both players, then we return True.
         return False
-
-    def _get_piece(self, piece_type):
-        self._chess_engine.get_pieces(piece_type)
