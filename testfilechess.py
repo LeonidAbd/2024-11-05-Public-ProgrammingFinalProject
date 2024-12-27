@@ -392,4 +392,6 @@ class Game(object):
             self.clear_screen()
             print(cb)
 
-Game()
+
+if __name__ == "__main__":
+    Game()
