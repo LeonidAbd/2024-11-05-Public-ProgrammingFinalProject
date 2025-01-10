@@ -9,8 +9,7 @@ import flet.canvas
 from typing import Callable
 import pynput
 
-import testfilechess
-from chess_engine import *
+import chess_engine
 
 
 class Application:
@@ -804,7 +803,7 @@ class Application:
 
                 piece_prev = get_piece_by_pos(transform_to_engine(cell.i, cell.j))
                 self.pieces.remove(piece_prev)
-                captured, castling = self._application._chess_engine.move_chessman(
+                captured, bool_castling, bool_promotion = self._application._chess_engine.move_chessman(
                     transform_to_engine(*active_piece.ij),
                     transform_to_engine(cell.i, cell.j)
                 )
@@ -831,14 +830,50 @@ class Application:
                     for j in range(8):
                         Cell.get_cell(i, j).active = False
 
-                if castling:
-                    print()
+                if bool_castling:
                     rook: Piece = get_piece_by_pos((7 if captured[1] == 6 else 0, 7-captured[0]))
                     pos_new = (captured[0], 5 if captured[1] == 6 else 3)
                     Cell.get_cell(*pos_new).active = True
                     rook.active = 2
                     piece_accept(Cell.get_cell(*pos_new))
                     change_color()
+
+                if bool_promotion:
+                    pawn = get_piece_by_pos((captured[1], 7-captured[0]))
+                    image_src = lambda board_piece, pawn: (
+                            "./resources/" +
+                            ("White" if pawn.board_piece.color == testfilechess.Color.WHITE else "Black") +
+                            ("Queen" if board_piece.CODE == testfilechess.ChessmanQueen.CODE else
+                             "Rook" if board_piece.CODE == testfilechess.ChessmanRook.CODE else
+                             "Bishop" if board_piece.CODE == testfilechess.ChessmanBishop.CODE else
+                             "Knight" if board_piece.CODE == testfilechess.ChessmanKnight.CODE else "") +
+                            ".png"
+                    )
+
+                    def pick(code: str):
+                        print("PICK")
+                        self._page.close(alert_pick_promotion)
+                        self._application._chess_engine.pawn_promotion(transform_to_engine(*pawn.ij), code)
+                        pawn.board_piece = self._application._chess_engine.get_chessman(*transform_to_engine(*pawn.ij))
+                        new_piece(*pawn.ij, pawn.board_piece)
+                        self._page.update()
+
+                    self._page.open(alert_pick_promotion := flet.AlertDialog(
+                        modal=True,
+                        content=flet.Text("What promotion"),
+                        title=flet.Text("Confirm Exit"),
+                        actions=[
+                            flet.TextButton(content=flet.Image(src=image_src(testfilechess.ChessmanQueen, pawn), width=self.cell_size * 1.5),
+                                            on_click=lambda event: pick(testfilechess.ChessmanQueen.CODE)),
+                            flet.TextButton(content=flet.Image(src=image_src(testfilechess.ChessmanRook, pawn), width=self.cell_size * 1.5),
+                                            on_click=lambda event: pick(testfilechess.ChessmanRook.CODE)),
+                            flet.TextButton(content=flet.Image(src=image_src(testfilechess.ChessmanBishop, pawn), width=self.cell_size * 1.5),
+                                            on_click=lambda event: pick(testfilechess.ChessmanBishop.CODE)),
+                            flet.TextButton(content=flet.Image(src=image_src(testfilechess.ChessmanKnight, pawn), width=self.cell_size * 1.5),
+                                            on_click=lambda event: pick(testfilechess.ChessmanKnight.CODE)),
+                        ]
+                    ))
+                print(self._application._chess_engine)
 
             def piece_will_accept(event):
                 cell: Cell = event.control
