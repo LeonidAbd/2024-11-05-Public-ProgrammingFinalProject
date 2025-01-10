@@ -57,6 +57,8 @@ class Chessboard(object):
         for x in range(8):
             board[6][x] = ChessmanPawn(white)
 
+        self.chessman_en_passant = None
+
     def clone(self):
         """Create a deep copy of the chessboard."""
         cb = Chessboard()
@@ -78,13 +80,25 @@ class Chessboard(object):
     def move_chessman(self, xy_from, xy_to):
         """Move a chessman from one position to another."""
         captured = self.board[xy_to[1]][xy_to[0]]
+        self.define_en_passant(xy_from, xy_to)
         self.board[xy_to[1]][xy_to[0]] = self.board[xy_from[1]][xy_from[0]]
         self.board[xy_from[1]][xy_from[0]] = EmptyCell()
         return captured
 
+    def define_en_passant(self, xy_from, xy_to):
+        if not self.get_chessman(xy_from[0], xy_from[1]).CODE == ChessmanPawn.CODE:
+            self.chessman_en_passant = None
+            return
+        if not (xy_to[1] - xy_from[1]) * (
+                -1 if self.get_chessman(xy_from[0], xy_from[1]).color == Color.WHITE
+                else 1) == 2:
+            self.chessman_en_passant = None
+            return
+        self.chessman_en_passant = xy_to
+
     def is_empty(self, x, y):
         """Check if a cell on the board is empty."""
-        return self.get_chessman(y, x).CODE == 'empty'
+        return self.get_chessman(x, y).CODE == 'empty'
 
     def rate(self, color):
         """Evaluate the board for a given color."""
@@ -147,12 +161,16 @@ class Chessman(object):
         self.color = color
 
     @abstractmethod
-    def get_moves(self, board, x, y):
+    def get_possible_moves(self, board: Chessboard, x, y):
         return []
 
     @abstractmethod
-    def rate(self, board, x, y):
+    def rate(self, board: Chessboard, x, y):
         return 0
+
+    @abstractmethod
+    def get_moves(self, board, x, y):
+        return []
 
     def enemy_color(self):
         """Return the color of the enemy."""
@@ -168,14 +186,32 @@ class ChessmanPawn(Chessman):
     WHITE_IMG = '♙'
     BLACK_IMG = '♟'
 
-    def get_moves(self, board, x, y):
+    def get_possible_moves(self, board: Chessboard, x, y):
         moves = []
         y += -1 if self.color == Color.WHITE else 1
         if y == -1 or y == 8:
             return moves
-        if x > 0 and board.get_color(x-1, y) == self.enemy_color():
+        if x > 0:
+            moves.append([x - 1, y])
+        if x < 7:
+            moves.append([x + 1, y])
+        moves.append([x, y])
+        if self.color == Color.WHITE and y == 5:
+            moves.append([x, y - 1])
+        if self.color == Color.BLACK and y == 2:
+            moves.append([x, y + 1])
+        return moves
+
+    def get_moves(self, board: Chessboard, x, y):
+        moves = []
+        y += -1 if self.color == Color.WHITE else 1
+        if y == -1 or y == 8:
+            return moves
+        if x > 0 and (board.get_color(x-1, y) == self.enemy_color()
+                      or board.chessman_en_passant == (x-1, y+(1 if self.color == Color.WHITE else -1))):
             moves.append([x-1, y])
-        if x < 7 and board.get_color(x+1, y) == self.enemy_color():
+        if x < 7 and (board.get_color(x+1, y) == self.enemy_color()
+                      or board.chessman_en_passant == (x+1, y+(1 if self.color == Color.WHITE else -1))):
             moves.append([x+1, y])
         if board.is_empty(x, y):
             moves.append([x, y])
@@ -185,7 +221,7 @@ class ChessmanPawn(Chessman):
                 moves.append([x, y+1])
         return moves
 
-    def rate(self, board, x, y):
+    def rate(self, board: Chessboard, x, y):
         return self.VALUE + 1 * (8-y if self.color == Color.WHITE else y)
 
 #KING
@@ -194,6 +230,16 @@ class ChessmanKing(Chessman):
     VALUE = 0
     WHITE_IMG = '♔'
     BLACK_IMG = '♚'
+
+    def get_possible_moves(self, board: Chessboard, x, y):
+        moves = []
+        for j in (y-1, y, y+1):
+            for i in (x-1, x, x+1):
+                if i == x and j == y:
+                    continue
+                if 0 <= i <= 7 and 0 <= j <= 7:
+                    moves.append([i, j])
+        return moves
 
     def get_moves(self, board, x, y):
         moves = []
@@ -214,6 +260,20 @@ class ChessmanRook(Chessman):
     VALUE = 50
     WHITE_IMG = '♖'
     BLACK_IMG = '♜'
+
+    def get_possible_moves(self, board: Chessboard, x, y):
+        moves = []
+        for j in (-1, 1):
+            i = x + j
+            while 0 <= i <= 7:
+                moves.append([i, y])
+                i += j
+        for j in (-1, 1):
+            i = y + j
+            while 0 <= i <= 7:
+                moves.append([x, i])
+                i += j
+        return moves
 
     def get_moves(self, board, x, y):
         moves = []
@@ -249,6 +309,19 @@ class ChessmanBishop(Chessman):
     WHITE_IMG = '♗'
     BLACK_IMG = '♝'
 
+    def get_possible_moves(self, board, x, y):
+        moves = []
+        # Diagonal directions: (dx, dy) pairs
+        directions = [(-1, -1), (1, -1), (-1, 1), (1, 1)]
+
+        for dx, dy in directions:
+            i, j = x + dx, y + dy  # Move diagonally in the current direction
+            while 0 <= i <= 7 and 0 <= j <= 7:  # Stay within board boundaries
+                moves.append([i, j])  # Add the valid move
+                i += dx  # Continue in the same diagonal direction
+                j += dy
+        return moves
+
     def get_moves(self, board, x, y):
         moves = []
         # Diagonal directions: (dx, dy) pairs
@@ -273,6 +346,23 @@ class ChessmanQueen(Chessman):
     VALUE = 90
     WHITE_IMG = '♕'
     BLACK_IMG = '♛'
+
+    def get_possible_moves(self, board, x, y):
+        moves = []
+        # All 8 possible directions: (dx, dy) pairs
+        directions = [
+            (-1, 0), (1, 0),  # Left, Right (Horizontal)
+            (0, -1), (0, 1),  # Up, Down (Vertical)
+            (-1, -1), (1, -1), (-1, 1), (1, 1)  # Diagonals: Top-Left, Top-Right, Bottom-Left, Bottom-Right
+        ]
+
+        for dx, dy in directions:
+            i, j = x + dx, y + dy  # Move in the current direction
+            while 0 <= i <= 7 and 0 <= j <= 7:  # Stay within board boundaries
+                moves.append([i, j])  # Add the valid move
+                i += dx  # Continue in the same direction
+                j += dy
+        return moves
 
     def get_moves(self, board, x, y):
         moves = []
@@ -302,6 +392,22 @@ class ChessmanKnight(Chessman):
     VALUE = 30
     WHITE_IMG = '♘'
     BLACK_IMG = '♞'
+
+    def get_possible_moves(self, board, x, y):
+        moves = []
+        # All 8 possible "L" shaped moves for the Knight
+        knight_moves = [
+            (-2, -1), (-2, 1),  # Up-Left, Up-Right
+            (-1, -2), (-1, 2),  # Left-Up, Right-Up
+            (1, -2), (1, 2),    # Left-Down, Right-Down
+            (2, -1), (2, 1)     # Down-Left, Down-Right
+        ]
+
+        for dx, dy in knight_moves:
+            i, j = x + dx, y + dy  # New position after the move
+            if 0 <= i <= 7 and 0 <= j <= 7:  # Check board boundaries
+                color = board.get_color(i, j)  # Get the color at the new position
+        return moves
 
     def get_moves(self, board, x, y):
         moves = []
