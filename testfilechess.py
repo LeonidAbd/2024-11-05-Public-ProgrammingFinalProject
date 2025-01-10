@@ -1,5 +1,6 @@
 #! -*- coding: utf-8 -*-
 from abc import abstractmethod, ABCMeta
+import copy
 
 # Depth of the AI decision tree
 
@@ -59,10 +60,29 @@ class Chessboard(object):
 
         self.chessman_en_passant = None
 
+    def get_king_pos(self, color):
+        """Returns the position of a king of the color"""
+        for x in range(8):
+            for y in range(8):
+                chessman = self.get_chessman(x, y)
+                if chessman.color == color and chessman.CODE == ChessmanKing.CODE:
+                    return [x, y]
+
+    def is_check(self, king_pos, color):
+        """Make sure if there is a check or no"""
+        for x in range(8):
+            for y in range(8):
+                chessman = self.get_chessman(x, y)
+                if chessman.color != Color.invert(color): continue
+                if king_pos in chessman.get_moves(self, x, y):
+                    return True
+        return False
+
     def clone(self):
         """Create a deep copy of the chessboard."""
         cb = Chessboard()
-        cb.board = [self.board[i][:] for i in range(8)]
+        cb.board = copy.deepcopy(self.board)
+        cb.chessman_en_passant = self.chessman_en_passant
         return cb
 
     def get_chessman(self, x, y):
@@ -75,15 +95,46 @@ class Chessboard(object):
 
     def get_chessman_moves(self, x, y):
         """Get all valid moves for the chessman at the given position."""
-        return self.get_chessman(x, y).get_moves(self, x, y)
+        chessman = self.get_chessman(x, y)
+        moves = chessman.get_moves(self, x, y)
+        moves_final = list()
+        for move in moves:
+            self_clone = self.clone()
+            self_clone.move_chessman((x, y), move)
+            king_pos = self_clone.get_king_pos(chessman.color)
+            if not self_clone.is_check(king_pos, chessman.color):
+                moves_final.append(move)
+        return moves_final
 
     def move_chessman(self, xy_from, xy_to):
         """Move a chessman from one position to another."""
-        captured = self.board[xy_to[1]][xy_to[0]]
+        captured = (xy_to[1], xy_to[0])
+        en_passant = self.chessman_en_passant
+
+        # Remember if the move was appropriate for "en passant" on the next move
         self.define_en_passant(xy_from, xy_to)
         self.board[xy_to[1]][xy_to[0]] = self.board[xy_from[1]][xy_from[0]]
+
+        # If it's the rook/King, they can't make a Castling anymore
+        if self.board[xy_to[1]][xy_to[0]].CODE in (ChessmanKing.CODE, ChessmanRook.CODE):
+            self.board[xy_to[1]][xy_to[0]].not_moved = False
+
+        # Make the "en passant" movement
+        if en_passant is None: pass
+        elif (xy_to[1] + (1 if self.board[xy_to[1]][xy_to[0]].color == Color.WHITE else -1),
+              xy_to[0]) \
+                == (en_passant[1], en_passant[0]):
+            captured = (en_passant[1], en_passant[0])
+            self.board[captured[0]][captured[1]] = EmptyCell()
+
         self.board[xy_from[1]][xy_from[0]] = EmptyCell()
-        return captured
+
+        # If it's rooking, make sure to move the rook too
+        if self.board[xy_to[1]][xy_to[0]].CODE == ChessmanKing.CODE:
+            if xy_to[0] - xy_from[0] in (2, -2):
+                return (captured[1], captured[0]), True
+
+        return (captured[1], captured[0]), False
 
     def define_en_passant(self, xy_from, xy_to):
         if not self.get_chessman(xy_from[0], xy_from[1]).CODE == ChessmanPawn.CODE:
@@ -172,6 +223,21 @@ class Chessman(object):
     def get_moves(self, board, x, y):
         return []
 
+    def get_legal_moves(self, board, x, y):
+        chessman = board.get_chessman(x, y)
+        moves = chessman.get_moves(board, x, y, castling=True) \
+            if chessman.CODE == ChessmanKing.CODE else \
+            chessman.get_moves(board, x, y)
+
+        moves_final = list()
+        for move in moves:
+            self_clone = board.clone()
+            self_clone.move_chessman((x, y), move)
+            king_pos = self_clone.get_king_pos(chessman.color)
+            if not self_clone.is_check(king_pos, chessman.color):
+                moves_final.append(move)
+        return moves_final
+
     def enemy_color(self):
         """Return the color of the enemy."""
         return Color.invert(self.color)
@@ -230,6 +296,7 @@ class ChessmanKing(Chessman):
     VALUE = 0
     WHITE_IMG = '♔'
     BLACK_IMG = '♚'
+    not_moved = True
 
     def get_possible_moves(self, board: Chessboard, x, y):
         moves = []
@@ -241,7 +308,7 @@ class ChessmanKing(Chessman):
                     moves.append([i, j])
         return moves
 
-    def get_moves(self, board, x, y):
+    def get_moves(self, board, x, y, castling=None):
         moves = []
         for j in (y-1, y, y+1):
             for i in (x-1, x, x+1):
@@ -249,6 +316,23 @@ class ChessmanKing(Chessman):
                     continue
                 if 0 <= i <= 7 and 0 <= j <= 7 and board.get_color(i, j) != self.color:
                     moves.append([i, j])
+        # Castling
+        if castling is not None:
+            if self.not_moved:
+                # Short
+                if      not board.is_check([4, y], board.get_color(x, y)) and \
+                        not board.is_check([5, y], board.get_color(x, y)) and \
+                        all([board.get_color(*cell) == Color.EMPTY for cell in ([5, y], [6, y])]) and \
+                        board.get_chessman(7, y).CODE == ChessmanRook.CODE:
+                    if board.get_chessman(7, y).not_moved:
+                        moves.append([6, y])
+                # Long
+                if      not board.is_check([4, y], board.get_color(x, y)) and \
+                        not board.is_check([3, y], board.get_color(x, y)) and \
+                        all([board.get_color(*cell) == Color.EMPTY for cell in ([3, y], [2, y], [1, y])]) and \
+                        board.get_chessman(0, y).CODE == ChessmanRook.CODE:
+                    if board.get_chessman(0, y).not_moved:
+                        moves.append([2, y])
         return moves
 
     def rate(self, board, x, y):
@@ -260,6 +344,7 @@ class ChessmanRook(Chessman):
     VALUE = 50
     WHITE_IMG = '♖'
     BLACK_IMG = '♜'
+    not_moved = True
 
     def get_possible_moves(self, board: Chessboard, x, y):
         moves = []

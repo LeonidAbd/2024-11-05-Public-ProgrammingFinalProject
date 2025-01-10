@@ -667,13 +667,13 @@ class Application:
                     # PIECE_CURRENT SET 1
                     print(*[
                         transform_from_engine(*t) for t in
-                        piece_current.board_piece.get_moves(
+                        piece_current.board_piece.get_legal_moves(
                             self._application._chess_engine, *transform_to_engine(*piece_current.ij)
                         )
                     ], sep="\n  ")
                     for xy in [
                         transform_from_engine(*t) for t in
-                        piece_current.board_piece.get_moves(
+                        piece_current.board_piece.get_legal_moves(
                             self._application._chess_engine, *transform_to_engine(*piece_current.ij)
                         )
                     ]:
@@ -706,7 +706,7 @@ class Application:
                 active_piece.on_drag_start = lambda event: hide_hint_moves(event.control)
                 hide_hint_moves()
                 active_piece.selected = True
-                for move in active_piece.board_piece.get_moves(self._application._chess_engine, *piece_position):
+                for move in active_piece.board_piece.get_legal_moves(self._application._chess_engine, *piece_position):
                     move_transformed = transform_from_engine(*move)
                     cell_possiblemove: Cell = Cell.get_cell(*move_transformed)
                     cell_possiblemove.set_bgc(cell_possiblemove.get_bgc_possible_moves())
@@ -804,13 +804,21 @@ class Application:
 
                 piece_prev = get_piece_by_pos(transform_to_engine(cell.i, cell.j))
                 self.pieces.remove(piece_prev)
-                self._application._chess_engine.move_chessman(
+                captured, castling = self._application._chess_engine.move_chessman(
                     transform_to_engine(*active_piece.ij),
                     transform_to_engine(cell.i, cell.j)
                 )
+                captured = transform_from_engine(*captured)
+                print("[]", captured)
+                print("[]", cell.i, cell.j)
+                cell_captured = Cell.get_cell(*captured)
+                cell_captured.set_bgc(cell.get_bgc_inactive())
+                new_empty_piece(*captured)
+                cell_captured.update()
+
                 cell.set_bgc(cell.get_bgc_inactive())
-                cell.update()
                 new_empty_piece(*active_piece.ij)
+                cell.update()
                 active_piece.ij = [cell.i, cell.j]
                 # if cell.id_accept == active_piece.id:
                 piece_update(*active_piece.ij, active_piece)
@@ -822,6 +830,15 @@ class Application:
                 for i in range(8):
                     for j in range(8):
                         Cell.get_cell(i, j).active = False
+
+                if castling:
+                    print()
+                    rook: Piece = get_piece_by_pos((7 if captured[1] == 6 else 0, 7-captured[0]))
+                    pos_new = (captured[0], 5 if captured[1] == 6 else 3)
+                    Cell.get_cell(*pos_new).active = True
+                    rook.active = 2
+                    piece_accept(Cell.get_cell(*pos_new))
+                    change_color()
 
             def piece_will_accept(event):
                 cell: Cell = event.control
