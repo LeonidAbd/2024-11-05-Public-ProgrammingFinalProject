@@ -1,0 +1,26 @@
+{
+  "Board Index on both sides": {
+    "values": [
+      "ON",
+      "OFF"
+    ],
+    "current": 1
+  },
+  "Cell size": {
+    "values": [
+      40,
+      45,
+      50
+    ],
+    "current": 1
+  },
+  "Board border width": {
+    "values": [
+      2,
+      3,
+      4,
+      6
+    ],
+    "current": 3
+  }
+}
