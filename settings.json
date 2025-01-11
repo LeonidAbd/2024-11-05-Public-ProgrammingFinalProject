@@ -1,5 +1,26 @@
 {
-  "board_two_sided_indexing": {
-    "value": false
+  "Board Index on both sides": {
+    "values": [
+      "ON",
+      "OFF"
+    ],
+    "current": 0
+  },
+  "Cell size": {
+    "values": [
+      40,
+      45,
+      50
+    ],
+    "current": 0
+  },
+  "Board border width": {
+    "values": [
+      2,
+      3,
+      4,
+      6
+    ],
+    "current": 0
   }
 }

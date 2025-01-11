@@ -1,29 +1,47 @@
 from __future__ import annotations
 
-import copy
-import json
-import math
-
 import flet
-import flet.canvas
-from typing import Callable
-import pynput
 
+from libraries import *
 import chess_engine
 
 
 class Application:
     class Settings:
-        board_two_sided_indexing: bool
+        attributes: dict[str, list[list[any], int]]
+        filename: str
 
         def __init__(self, filename):
+            self.filename = filename
             settings_json = json.load(open(filename, "r"))
+            self.attributes = dict()
             for key, value in settings_json.items():
-                self.__setattr__(key, value["value"])
+                self.attributes[key] = [value["values"], value["current"]]
+            self.save()
+
+        def value(self, key: str):
+            res = self.attributes[key]
+            return res[0][res[1]]
+
+        def set_attributes(self, attributes):
+            self.attributes = attributes
+
+        def up(self, key: str):
+            self.attributes[key][1] += 1
+            self.attributes[key][1] %= self.attributes[key][0].__len__()
+
+        def down(self, key: str):
+            self.attributes[key][1] -= 1
+            self.attributes[key][1] %= self.attributes[key][0].__len__()
+
+
+        def save(self):
+            res = dict()
+            for key, value in self.attributes.items():
+                res[key] = {"values": value[0], "current": value[1]}
+            json.dump(res, open(self.filename, "w"), indent=2)
 
     class Scene:
-        CONTENT_WHEN_DRAGGING_OPACITY: int = 0.5
-
         class _Cell(flet.DragTarget):
             i: int; j: int
             active: bool
@@ -66,7 +84,7 @@ class Application:
             # 3 - dropped
             # 4 - dropped out of board
             selected: bool
-            board_piece: testfilechess.Chessman
+            board_piece: chess_engine.Chessman
 
             def is_active(self):
                 return self.active in (1, 2)
@@ -94,7 +112,6 @@ class Application:
                     y2 = cell_size * 80 + cell_size / 2 * (15 - 2 * self.ij2[0])
                     angle = math.atan((y2 - y1) / (x2 - x1)) + (0 if x2 > x1 else math.pi) \
                         if x2 != x1 else math.pi * 0.5 if y2 > y1 else -math.pi * 0.5
-                    print(x2-x1, y2-y1, angle)
                     self.shapes = [
                         flet.canvas.Path([
                             flet.canvas.Path.MoveTo(x1 + cell_size * 0.4, y1),
@@ -106,7 +123,7 @@ class Application:
 
                             paint=flet.Paint(stroke_width=5, color=self.color_free, style=flet.PaintingStyle.STROKE),)
                     ] \
-                        if self.ij1 == self.ij2 else \
+                        if self.ij1[0] == self.ij2[0] and self.ij1[1] == self.ij2[1] else \
                         [
                         flet.canvas.Line(
                             x1=x1,
@@ -184,7 +201,7 @@ class Application:
                 for layer in self.controls[1:-1]:
                     if self._free_layer.ij1 == layer.ij1 and self._free_layer.ij2 == layer.ij2:
                         self.controls.remove(layer)
-                        print(self._free_layer)
+                        # print(self._free_layer)
                         self.free_layer_delete()
                         self.update()
                         return
@@ -293,6 +310,7 @@ class Application:
                         flet.Text("White:", width=50),
                         player_button_0 := flet.Button(
                             content=flet.Text(value_dict[self._application._players[0]]),
+                            disabled=True,
                             on_click=lambda _: set_player(0),
                             width=60,
                             style=flet.ButtonStyle(shape=flet.RoundedRectangleBorder(radius=7)),
@@ -302,6 +320,7 @@ class Application:
                         flet.Text("Black:", width=50),
                         player_button_1 := flet.Button(
                             content=flet.Text(value_dict[self._application._players[1]]),
+                            disabled=True,
                             on_click=lambda _: set_player(1),
                             width=60,
                             style=flet.ButtonStyle(shape=flet.RoundedRectangleBorder(radius=7)),
@@ -430,19 +449,41 @@ class Application:
 
                 settings_label_padding = (2, 6, 2, 0)
 
+                settings_copy = copy.deepcopy(self._application._settings)
+
+                def apply_settings():
+                    # print(self._application._settings.attributes, settings_copy.attributes)
+                    self._application._settings.set_attributes(settings_copy.attributes)
+                    self._application._settings.save()
+
+                def press_check_button(event: flet.ControlEvent):
+                    apply_button.disabled = False
+                    apply_button.update()
+                    ok_button.disabled = False
+                    ok_button.update()
+                    check_button: flet.Button = event.control
+                    attribute = check_button.parent.controls[0].value
+                    settings_copy.up(attribute)
+                    # print(settings_copy.value(attribute))
+                    check_button.content.value = settings_copy.value(attribute)
+                    check_button.update()
+
+
                 additional_column.controls.extend([
                     flet.Row([
                         flet.Container(width=10),
                         flet.Text("Settings:", weight=flet.FontWeight.W_600, size=30)
                     ]),
                     flet.Row([
-                        flet.Container(width=30),
+                        flet.Container(width=0),
                         flet.Container(
                             content=flet.Row(controls=[
                                 flet.Container(width=settings_label_padding[3]),
                                 flet.Column(controls=[
                                     flet.Container(height=settings_label_padding[0]),
-
+                                    settings_checkboxes := flet.Column(controls=[]),
+                                        # flet.Checkbox(label="Game #2", on_change=press_checkbox,
+                                        #               shape=flet.StadiumBorder()),
                                     flet.Container(height=settings_label_padding[2]),
                                 ]),
                                 flet.Container(width=settings_label_padding[1]),
@@ -451,10 +492,10 @@ class Application:
                         ),
                     ]),
                     flet.Row([
-                        start_game_button := flet.Button(
+                        ok_button := flet.Button(
                             disabled=True,
                             content=flet.Text("OK"),
-                            on_click=lambda _: [print("APPLY SETTINGS"), settings_cancel(_)],
+                            on_click=lambda _: [apply_settings(), settings_cancel(_)],
                             width=100,
                             style=flet.ButtonStyle(
                                 shape=flet.RoundedRectangleBorder(radius=9),
@@ -464,14 +505,14 @@ class Application:
                         ),
                         flet.Button(
                             content=flet.Text("Cancel"),
-                            on_click=settings_cancel,
+                            on_click=newgame_cancel,
                             width=70,
                             style=flet.ButtonStyle(shape=flet.RoundedRectangleBorder(radius=9)),
                         ),
-                        flet.Button(
+                        apply_button := flet.Button(
                             disabled=True,
                             content=flet.Text("Apply"),
-                            on_click=lambda _: print("APPLY SETTINGS"),
+                            on_click=lambda _: apply_settings(),
                             width=100,
                             style=flet.ButtonStyle(
                                 shape=flet.RoundedRectangleBorder(radius=9),
@@ -481,6 +522,11 @@ class Application:
                         ),
                     ]),
                 ])
+                for attribute in self._application._settings.attributes:
+                    settings_checkboxes.controls.append(flet.Row([
+                        flet.Text(value=attribute, style=flet.TextStyle(size=15, weight=flet.FontWeight.W_900)),
+                        flet.Button(content=flet.Text(value=self._application._settings.value(attribute)), on_click=press_check_button),
+                    ]))
                 self._page.update()
 
             settings_cancel = newgame_cancel
@@ -498,7 +544,7 @@ class Application:
                         flet.Row([
                             flet.Text("Leonid\nAbdrakhmanov", weight=flet.FontWeight.W_600, size=14, width=105),
                             flet.Container(width=4, height=50, bgcolor="#36618E"),
-                            flet.Text("Application Interface\n...", weight=flet.FontWeight.W_600, size=14, color="#36618E"),
+                            flet.Text("Application Interface\nDebugging Chess Engine", weight=flet.FontWeight.W_600, size=14, color="#36618E"),
                         ]),
                         flet.Row([
                             flet.Text("Miras\nNuraly", weight=flet.FontWeight.W_600, size=14, width=105),
@@ -507,21 +553,10 @@ class Application:
                         ]),
                     ]),
                     flet.Row([
-                        start_game_button := flet.Button(
-                            disabled=True,
-                            content=flet.Text("Start Game"),
-                            on_click=lambda _: print("START GAME"),
-                            width=100,
-                            style=flet.ButtonStyle(
-                                shape=flet.RoundedRectangleBorder(radius=9),
-                                color="#FFFFFF",
-                                bgcolor={flet.ControlState.DISABLED: "#8C8C8C", flet.ControlState.DEFAULT: "#3978A8"},
-                            ),
-                        ),
                         flet.Button(
-                            content=flet.Text("Cancel"),
+                            content=flet.Text("Back to menu"),
                             on_click=settings_cancel,
-                            width=70,
+                            width=120,
                             style=flet.ButtonStyle(shape=flet.RoundedRectangleBorder(radius=9)),
                         ),
                     ]),
@@ -545,18 +580,18 @@ class Application:
                 self._page.open(quit_dialog)
 
             menu = flet.Row(controls=[
-                spacing_column_0 := flet.Column(controls=[flet.Container(width=100)]),
+                spacing_column_0 := flet.Column(controls=[flet.Container(width=40)]),
                 main_column := flet.Column(controls=[
                     main_newgame_button := flet.Button(
                         content=flet.Text("New Game", text_align=flet.TextAlign.CENTER, size=30), height=60, width=250,
                         on_click=newgame_call,
                         style=flet.ButtonStyle(shape=flet.RoundedRectangleBorder(radius=10)),
                     ),
-                    main_loadgame_button := flet.Button(
-                        content=flet.Text("Load Game", text_align=flet.TextAlign.CENTER, size=30), height=60, width=250,
-                        on_click=loadgame_call,
-                        style=flet.ButtonStyle(shape=flet.RoundedRectangleBorder(radius=10)),
-                    ),
+                    # main_loadgame_button := flet.Button(
+                    #     content=flet.Text("Load Game", text_align=flet.TextAlign.CENTER, size=30), height=60, width=250,
+                    #     on_click=loadgame_call,
+                    #     style=flet.ButtonStyle(shape=flet.RoundedRectangleBorder(radius=10)),
+                    # ),
                     main_settings_button := flet.Button(
                         content=flet.Text("Settings", text_align=flet.TextAlign.CENTER, size=30), height=60, width=250,
                         on_click=settings_call,
@@ -633,7 +668,7 @@ class Application:
                 if self.shift_pressed:
                     self.board_stack.free_layer_save()
                     self.board_stack.new_free_layer(piece_current.ij)
-                    print(self.board_stack._free_layer)
+                    # print(self.board_stack._free_layer)
                     piece_current.content_feedback.opacity = 0
                     piece_current.content_when_dragging.opacity = 1
                     piece_current.update()
@@ -664,12 +699,12 @@ class Application:
 
                     piece_current.active = 1
                     # PIECE_CURRENT SET 1
-                    print(*[
-                        transform_from_engine(*t) for t in
-                        piece_current.board_piece.get_legal_moves(
-                            self._application._chess_engine, *transform_to_engine(*piece_current.ij)
-                        )
-                    ], sep="\n  ")
+                    # print(*[
+                    #     transform_from_engine(*t) for t in
+                    #     piece_current.board_piece.get_legal_moves(
+                    #         self._application._chess_engine, *transform_to_engine(*piece_current.ij)
+                    #     )
+                    # ], sep="\n  ")
                     for xy in [
                         transform_from_engine(*t) for t in
                         piece_current.board_piece.get_legal_moves(
@@ -726,7 +761,7 @@ class Application:
                     return
                 if piece is not None:
                     if piece.is_empty: return
-                    print(piece.active, piece.selected, piece.on_drag_start)
+                    # print(piece.active, piece.selected, piece.on_drag_start)
                     piece.active = 0
                     # PIECE_CURRENT SET 0
                     piece.on_drag_start = active_piece_set
@@ -749,13 +784,13 @@ class Application:
                 return (7-y, x)
 
             def change_color():
-                self.current_color = testfilechess.Color.invert(self.current_color)
+                self.current_color = chess_engine.Color.invert(self.current_color)
                 for piece in self.pieces:
                     piece: Piece
                     if piece.is_empty: continue
                     if piece.board_piece.color == self.current_color:
                         piece.content_feedback.opacity = 1
-                        piece.content_when_dragging.opacity = Application.Scene.CONTENT_WHEN_DRAGGING_OPACITY
+                        piece.content_when_dragging.opacity = 0.5
                     else:
                         piece.content_feedback.opacity = 0
                         piece.content_when_dragging.opacity = 1
@@ -770,8 +805,8 @@ class Application:
             if True:
                 # self._add_menu_bar()
 
-                board_border_width = 4
-                self.cell_size = 46
+                board_border_width = self._application._settings.value("Board border width")
+                self.cell_size = self._application._settings.value("Cell size")
                 board_numbering_size = [30, 30]
                 letters = "ABCDEFGH"
 
@@ -808,8 +843,8 @@ class Application:
                     transform_to_engine(cell.i, cell.j)
                 )
                 captured = transform_from_engine(*captured)
-                print("[]", captured)
-                print("[]", cell.i, cell.j)
+                # print("[]", captured)
+                # print("[]", cell.i, cell.j)
                 cell_captured = Cell.get_cell(*captured)
                 cell_captured.set_bgc(cell.get_bgc_inactive())
                 new_empty_piece(*captured)
@@ -842,16 +877,16 @@ class Application:
                     pawn = get_piece_by_pos((captured[1], 7-captured[0]))
                     image_src = lambda board_piece, pawn: (
                             "./resources/" +
-                            ("White" if pawn.board_piece.color == testfilechess.Color.WHITE else "Black") +
-                            ("Queen" if board_piece.CODE == testfilechess.ChessmanQueen.CODE else
-                             "Rook" if board_piece.CODE == testfilechess.ChessmanRook.CODE else
-                             "Bishop" if board_piece.CODE == testfilechess.ChessmanBishop.CODE else
-                             "Knight" if board_piece.CODE == testfilechess.ChessmanKnight.CODE else "") +
+                            ("White" if pawn.board_piece.color == chess_engine.Color.WHITE else "Black") +
+                            ("Queen" if board_piece.CODE == chess_engine.ChessmanQueen.CODE else
+                             "Rook" if board_piece.CODE == chess_engine.ChessmanRook.CODE else
+                             "Bishop" if board_piece.CODE == chess_engine.ChessmanBishop.CODE else
+                             "Knight" if board_piece.CODE == chess_engine.ChessmanKnight.CODE else "") +
                             ".png"
                     )
 
                     def pick(code: str):
-                        print("PICK")
+                        # print("PICK")
                         self._page.close(alert_pick_promotion)
                         self._application._chess_engine.pawn_promotion(transform_to_engine(*pawn.ij), code)
                         pawn.board_piece = self._application._chess_engine.get_chessman(*transform_to_engine(*pawn.ij))
@@ -863,17 +898,17 @@ class Application:
                         content=flet.Text("What promotion"),
                         title=flet.Text("Confirm Exit"),
                         actions=[
-                            flet.TextButton(content=flet.Image(src=image_src(testfilechess.ChessmanQueen, pawn), width=self.cell_size * 1.5),
-                                            on_click=lambda event: pick(testfilechess.ChessmanQueen.CODE)),
-                            flet.TextButton(content=flet.Image(src=image_src(testfilechess.ChessmanRook, pawn), width=self.cell_size * 1.5),
-                                            on_click=lambda event: pick(testfilechess.ChessmanRook.CODE)),
-                            flet.TextButton(content=flet.Image(src=image_src(testfilechess.ChessmanBishop, pawn), width=self.cell_size * 1.5),
-                                            on_click=lambda event: pick(testfilechess.ChessmanBishop.CODE)),
-                            flet.TextButton(content=flet.Image(src=image_src(testfilechess.ChessmanKnight, pawn), width=self.cell_size * 1.5),
-                                            on_click=lambda event: pick(testfilechess.ChessmanKnight.CODE)),
+                            flet.TextButton(content=flet.Image(src=image_src(chess_engine.ChessmanQueen, pawn), width=self.cell_size * 1.5),
+                                            on_click=lambda event: pick(chess_engine.ChessmanQueen.CODE)),
+                            flet.TextButton(content=flet.Image(src=image_src(chess_engine.ChessmanRook, pawn), width=self.cell_size * 1.5),
+                                            on_click=lambda event: pick(chess_engine.ChessmanRook.CODE)),
+                            flet.TextButton(content=flet.Image(src=image_src(chess_engine.ChessmanBishop, pawn), width=self.cell_size * 1.5),
+                                            on_click=lambda event: pick(chess_engine.ChessmanBishop.CODE)),
+                            flet.TextButton(content=flet.Image(src=image_src(chess_engine.ChessmanKnight, pawn), width=self.cell_size * 1.5),
+                                            on_click=lambda event: pick(chess_engine.ChessmanKnight.CODE)),
                         ]
                     ))
-                print(self._application._chess_engine)
+                # print(self._application._chess_engine)
 
             def piece_will_accept(event):
                 cell: Cell = event.control
@@ -884,7 +919,7 @@ class Application:
                 if active_piece is None: return
                 if not active_piece.is_active() or not cell.active: return
                 self.cell_mouse_over = cell
-                print(f"{cell.active}")
+                # print(f"{cell.active}")
                 if active_piece is None:
                     return
                 elif cell.active and active_piece.is_active():
@@ -930,12 +965,15 @@ class Application:
 
                 self.board_stack = Application.Scene._BoardStack([self.board_cells])
 
-                self._page.controls.append(flet.Text("Black"))
+                self._page.controls.append(flet.Row([
+                    flet.Container(width=self.cell_size * 4.5),
+                    flet.Text(value="Black", style=flet.TextStyle(size=18, weight=flet.FontWeight.W_600))
+                ]))
                 self._page.controls.append(
                     flet.Row([
                         flet.Container(width=30),
                         flet.Column([board_letter_labels
-                                     if self._application._settings.board_two_sided_indexing else
+                                     if self._application._settings.value("Board Index on both sides") == "ON" else
                                      board_letter_labels_empty] + [
                             flet.Row([board_number_labels] + [
                                 flet.Container(
@@ -943,12 +981,111 @@ class Application:
                                     border=flet.border.all(board_border_width, "#36618E"),
                                 ),
                             ] + [board_number_labels
-                                 if self._application._settings.board_two_sided_indexing else
+                                 if self._application._settings.value("Board Index on both sides") == "ON" else
                                  board_number_labels_empty], spacing=0),
                         ] + [board_letter_labels],
                                     spacing=0),
+                        flet.Column(width=30),
+                        flet.Column([
+                            flet.Text(value="Controls:", size=30),
+                            flet.Text(value="Drag or click on the pieces\nShift+Drag to draw (repeat the same path to delete it)", size=12, weight=flet.FontWeight.W_500),
+                            flet.Text(value="You can see all the possible moves, including:", size=12, weight=flet.FontWeight.W_500),
+                            flet.Text(value=" • En Passant", size=16, weight=flet.FontWeight.W_500),
+                            flet.Text(value=" • Castling", size=16, weight=flet.FontWeight.W_500),
+                            flet.Text(value=" • Pawn Promotion", size=16, weight=flet.FontWeight.W_500),
+                            flet.Row([
+                                flet.Button(
+                                    content=flet.Text("Menu", size=15),
+                                    style=flet.ButtonStyle(shape=flet.RoundedRectangleBorder(radius=9),color="#FFFFFF",bgcolor="#3978A8"),
+                                    on_click=lambda event: self._page.open(flet.AlertDialog(
+                                        # modal=True,
+                                        content=flet.Text("Are you sure you want to go to menu?"),
+                                        title=flet.Text("Confirm Exit"),
+                                        on_dismiss=lambda event: self._page.close(event.control),
+                                        actions=[
+                                            flet.TextButton("Yes", on_click=lambda event: (self._page.close(event.control.parent), self._show_scene_mainmenu())),
+                                            flet.TextButton("No", on_click=lambda event: self._page.close(event.control.parent)),
+                                        ]
+                                    ))
+                                ),
+                                flet.Button(
+                                    content=flet.Text("More Info", size=15),
+                                    style=flet.ButtonStyle(shape=flet.RoundedRectangleBorder(radius=9)),
+                                    on_click=lambda event: self._page.open(flet.AlertDialog(
+                                        # modal=True,
+                                        content=flet.Column([
+                                            flet.Row([
+                                                flet.Image(src="./resources/WhitePawn.png", width=30, height=30),
+                                                flet.Text("Pawn", size=18, weight=flet.FontWeight.W_600),
+                                                flet.Text(
+                                                    "Moves one field forward (two fields if it didn't\n"
+                                                          "make a move), can capture diagonally forward, and\n"
+                                                          "can capture another pawn if it has recently made\n"
+                                                          "the 2-field jump (this capture is called EN-PASSANT).\n"
+                                                          "When reaching the last lien of the board, it turns\n"
+                                                          "into any other piece // excluding King of cource ;)", size=10),
+                                            ]),
+                                            flet.Container(width=400, height=5, bgcolor="#3978A8"),
+                                            flet.Row([
+                                                flet.Image(src="./resources/WhiteBishop.png", width=30, height=30),
+                                                flet.Text("Bishop", size=18, weight=flet.FontWeight.W_600),
+                                                flet.Text(
+                                                    "Moves by any diagonal on any amount of fields,\n"
+                                                    "but can't jump over other pieces.", size=10),
+                                            ]),
+                                            flet.Container(width=400, height=5, bgcolor="#3978A8"),
+                                            flet.Row([
+                                                flet.Image(src="./resources/WhiteRook.png", width=30, height=30),
+                                                flet.Text("Rook", size=18, weight=flet.FontWeight.W_600),
+                                                flet.Text(
+                                                    "Moves in a straight line on any amount of fields,\n"
+                                                    "but can't jump over other pieces.", size=10),
+                                            ]),
+                                            flet.Container(width=400, height=5, bgcolor="#3978A8"),
+                                            flet.Row([
+                                                flet.Image(src="./resources/WhiteKnight.png", width=30, height=30),
+                                                flet.Text("Knight", size=18, weight=flet.FontWeight.W_600),
+                                                flet.Text(
+                                                    "Moves 2 fields in one direction and 1 field sideways.\n"
+                                                    "It's the only piece that can jump over other pieces.", size=10),
+                                            ]),
+                                            flet.Container(width=400, height=5, bgcolor="#3978A8"),
+                                            flet.Row([
+                                                flet.Image(src="./resources/WhiteQueen.png", width=30, height=30),
+                                                flet.Text("Queen", size=18, weight=flet.FontWeight.W_600),
+                                                flet.Text(
+                                                    "Moves either horisontally or diagonally on any amount\n"
+                                                    "of fields. I.e. it's the Rook and the Bishop combined)\n"
+                                                    "Still can't jump over other pieces XD", size=10),
+                                            ]),
+                                            flet.Container(width=400, height=5, bgcolor="#3978A8"),
+                                            flet.Row([
+                                                flet.Image(src="./resources/WhiteKing.png", width=30, height=30),
+                                                flet.Text("King", size=18, weight=flet.FontWeight.W_600),
+                                                flet.Text(
+                                              "Moves to horisontally and diagonally adjacent fields,\n"
+                                                    "thus it's the most immobile piece except for a pawn.\n"
+                                                    "Moreover, the player MUST move the King out of the\n"
+                                                    "threat (Check). Otherwise it would have been captured.\n"
+                                                    "If any next move leads to the capture of the player's\n"
+                                                    "King, it's called a CHECKMATE, and considered as a win\n"
+                                                    "for his opponent.", size=10),
+                                            ]),
+                                        ]),
+                                        title=None,
+                                        on_dismiss=lambda event: self._page.close(event.control),
+                                        actions=[flet.TextButton("Thx, that helped ☺", on_click=lambda event: self._page.close(event.control.parent))],
+
+                                    ))
+                                )
+                            ]),
+                        ], width=250)
                     ])
                 )
+                self._page.controls.append(flet.Row([
+                    flet.Container(width=self.cell_size * 4.5),
+                    flet.Text(value="White", style=flet.TextStyle(size=18, weight=flet.FontWeight.W_600))
+                ]))
 
             # spawn pieces
             if True:
@@ -973,13 +1110,13 @@ class Application:
                 def new_piece(x, y, board_piece):
                     image_src = (
                         "./resources/" +
-                        ("White" if board_piece.color == testfilechess.Color.WHITE else "Black") +
-                        ("Pawn" if board_piece.CODE == testfilechess.ChessmanPawn.CODE else
-                         "Knight" if board_piece.CODE == testfilechess.ChessmanKnight.CODE else
-                         "Bishop" if board_piece.CODE == testfilechess.ChessmanBishop.CODE else
-                         "Rook" if board_piece.CODE == testfilechess.ChessmanRook.CODE else
-                         "Queen" if board_piece.CODE == testfilechess.ChessmanQueen.CODE else
-                         "King" if board_piece.CODE == testfilechess.ChessmanKing.CODE else "") +
+                        ("White" if board_piece.color == chess_engine.Color.WHITE else "Black") +
+                        ("Pawn" if board_piece.CODE == chess_engine.ChessmanPawn.CODE else
+                         "Knight" if board_piece.CODE == chess_engine.ChessmanKnight.CODE else
+                         "Bishop" if board_piece.CODE == chess_engine.ChessmanBishop.CODE else
+                         "Rook" if board_piece.CODE == chess_engine.ChessmanRook.CODE else
+                         "Queen" if board_piece.CODE == chess_engine.ChessmanQueen.CODE else
+                         "King" if board_piece.CODE == chess_engine.ChessmanKing.CODE else "") +
                         ".png"
                     )
                     self.pieces.append(Piece(
@@ -1006,11 +1143,11 @@ class Application:
                 for x in range(8):
                     for y in range(8):
                         board_piece = self._application._chess_engine.get_chessman(*transform_to_engine(x, y))
-                        if board_piece.CODE != testfilechess.EmptyCell.CODE:
+                        if board_piece.CODE != chess_engine.EmptyCell.CODE:
                             new_piece(x, y, board_piece)
                         else:
                             new_empty_piece(x, y)
-                self.current_color = testfilechess.Color.WHITE
+                self.current_color = chess_engine.Color.WHITE
 
         def _show_scene_chess(self):
             self._page.clean()
@@ -1039,7 +1176,10 @@ class Application:
             self._listener = pynput.keyboard.Listener(on_press=on_press, on_release=on_release)
 
         def start(self):
-            self._listener.start()
+            try:
+                self._listener.start()
+            except RuntimeError as e:
+                pass
 
         def stop(self):
             self._listener.stop()
@@ -1065,7 +1205,7 @@ class Application:
         def __del__(self):
             self._listener.stop()
 
-    _chess_engine: testfilechess.Chessboard
+    _chess_engine: chess_engine.Chessboard
     _players: list[bool, bool]
     _pc_difficulty: int
     _pc_difficulty_max: int = 3
@@ -1074,7 +1214,7 @@ class Application:
     _scene: Application.Scene
 
     def __init__(self):
-        self._chess_engine = testfilechess.Chessboard()
+        self._chess_engine = chess_engine.Chessboard()
         self._chess_engine.fill()
         self._players = [True, True]
         self._pc_difficulty = 1
@@ -1084,11 +1224,6 @@ class Application:
 
     def run(self):
         self._scene.run()
-
-    def __str__(self):
-        return ("Application object {\n" +
-                f"    ChessEngine: {ChessEngine},\n" +
-                "}")
 
     def change_player(self, player_id: int) -> bool:  # returns True if the operation has changed two parameters, else returns False
         if player_id not in (0, 1):
