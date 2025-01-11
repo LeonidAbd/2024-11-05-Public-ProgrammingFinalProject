@@ -69,7 +69,7 @@ class Chessboard(object):
                     return [x, y]
 
     def is_check(self, king_pos, color):
-        """Make sure if there is a check or no"""
+        """Find out if there is a check or no"""
         for x in range(8):
             for y in range(8):
                 chessman = self.get_chessman(x, y)
@@ -77,6 +77,27 @@ class Chessboard(object):
                 if king_pos in chessman.get_moves(self, x, y):
                     return True
         return False
+
+    def is_unmoving(self, color):
+        """Find out if the situation is stalemate/checkmate"""
+        for x in range(8):
+            for y in range(8):
+                chessman = self.get_chessman(x, y)
+                if chessman.color != color: continue
+                for move in chessman.get_moves(self, x, y):
+                    self_clone = self.clone()
+                    self_clone.move_chessman((x, y), move)
+                    king_pos = self_clone.get_king_pos(chessman.color)
+                    if not self_clone.is_check(king_pos, chessman.color):
+                        return False
+        return True
+
+    def is_checkmate(self, king_pos, color):
+        return self.is_unmoving(color) and self.is_check(king_pos, color)
+
+    def is_stalemate(self, king_pos, color):
+        return self.is_unmoving(color) and not self.is_check(king_pos, color)
+
 
     def clone(self):
         """Create a deep copy of the chessboard."""

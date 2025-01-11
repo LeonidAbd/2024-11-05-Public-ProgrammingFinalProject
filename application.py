@@ -68,6 +68,18 @@ class Application:
             def get_bgc_premove(self):
                 return "#B0B096" if (self.i + self.j) % 2 == 0 else "#DEDEBD"
 
+            def get_bgc_check(self):
+                return "#947979" if (self.i + self.j) % 2 == 0 else "#C49D9D"
+
+            def get_bgc_checkmate(self):
+                return "#614F61" if (self.i + self.j) % 2 == 0 else "#806780"
+
+            def get_bgc_checkmate(self):
+                return "#614F61" if (self.i + self.j) % 2 == 0 else "#806780"
+
+            def get_bgc_stalemate(self):
+                return "#595959" if (self.i + self.j) % 2 == 0 else "#707070"
+
             def save_color(self):
                 self.color_saved = self.content.bgcolor
 
@@ -329,7 +341,7 @@ class Application:
                     flet.Row([
                         flet.Button(
                             content=flet.Text("Start Game"),
-                            on_click=lambda _: self._show_scene_chess(),
+                            on_click=lambda _: (self._application.chess_engine_new_game(), self._show_scene_chess()),
                             width=100,
                             style=flet.ButtonStyle(
                                 shape=flet.RoundedRectangleBorder(radius=9),
@@ -827,6 +839,48 @@ class Application:
                 board_number_labels_empty = copy.copy(board_number_labels)
                 board_number_labels_empty.controls = None
 
+            def light_check(cell: Cell):
+                cell.set_bgc(cell.get_bgc_check())
+                cell.save_color()
+                cell.update()
+
+            def light_checkmate(cell: Cell):
+                cell.set_bgc(cell.get_bgc_checkmate())
+                cell.save_color()
+                cell.update()
+                self._page.open(flet.AlertDialog(
+                    title=flet.Text(f"{'WHITE' if self.current_color == 1 else 'BLACK'} win"),
+                    content=flet.Text("Checkmate.", size=20),
+                    actions=[
+                        flet.TextButton(content=flet.Text("Main Menu"), on_click=lambda event: (self._page.close(event.control.parent), self._show_scene_mainmenu()),
+                                        style=flet.ButtonStyle(
+                                            shape=flet.RoundedRectangleBorder(radius=9),
+                                            color="#FFFFFF", bgcolor="#3978A8"
+                                        )),
+                        flet.TextButton(content=flet.Text("Stay and look at position"), on_click=lambda event: self._page.close(event.control.parent))
+                    ]
+                ))
+
+            def light_stalemate(cell: Cell):
+                cell.set_bgc(cell.get_bgc_stalemate())
+                cell.save_color()
+                cell.update()
+                self._page.open(flet.AlertDialog(
+
+                    title=flet.Text(f"DRAW!"),
+                    content=flet.Text("Stalemate.", size=20),
+                    actions=[
+                        flet.TextButton(content=flet.Text("Main Menu"), on_click=lambda event: (
+                        self._page.close(event.control.parent), self._show_scene_mainmenu()),
+                                        style=flet.ButtonStyle(
+                                            shape=flet.RoundedRectangleBorder(radius=9),
+                                            color="#FFFFFF", bgcolor="#3978A8"
+                                        )),
+                        flet.TextButton(content=flet.Text("Stay and look at position"),
+                                        on_click=lambda event: self._page.close(event.control.parent))
+                    ]
+                ))
+
             def piece_accept(cell: Cell):
                 if self.shift_pressed:
                     self.board_stack.free_layer_save()
@@ -864,6 +918,16 @@ class Application:
                 for i in range(8):
                     for j in range(8):
                         Cell.get_cell(i, j).active = False
+
+                king_pos = self._application._chess_engine.get_king_pos(self.current_color)
+                is_check = self._application._chess_engine.is_check(king_pos, self.current_color)
+                is_unmoving = self._application._chess_engine.is_unmoving(self.current_color)
+                if is_check:
+                    light_check(Cell.get_cell(*transform_from_engine(*king_pos)))
+                if is_unmoving and is_check:
+                    light_checkmate(Cell.get_cell(*transform_from_engine(*king_pos)))
+                elif is_unmoving and not is_check:
+                    light_stalemate(Cell.get_cell(*transform_from_engine(*king_pos)))
 
                 if bool_castling:
                     rook: Piece = get_piece_by_pos((7 if captured[1] == 6 else 0, 7-captured[0]))
@@ -1214,13 +1278,15 @@ class Application:
     _scene: Application.Scene
 
     def __init__(self):
-        self._chess_engine = chess_engine.Chessboard()
-        self._chess_engine.fill()
         self._players = [True, True]
         self._pc_difficulty = 1
         self._settings = Application.Settings("settings.json")
         self._input_listener = Application.KeyboardListener(self)
         self._scene = Application.Scene(self)
+
+    def chess_engine_new_game(self):
+        self._chess_engine = chess_engine.Chessboard()
+        self._chess_engine.fill()
 
     def run(self):
         self._scene.run()
